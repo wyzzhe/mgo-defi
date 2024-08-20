@@ -1,0 +1,27 @@
+---
+compiled_package_info:
+  package_name: stake
+  address_alias_instantiation:
+    mgo: "0000000000000000000000000000000000000000000000000000000000000002"
+    stake: "0000000000000000000000000000000000000000000000000000000000000000"
+    std: "0000000000000000000000000000000000000000000000000000000000000001"
+  source_digest: C91887DA2B44CC03D25E389C40997C96241E515DAB6B83B9D7ED8340D28D6CDB
+  build_flags:
+    dev_mode: true
+    test_mode: true
+    generate_docs: false
+    install_dir: ~
+    force_recompilation: false
+    lock_file: ~
+    fetch_deps_only: false
+    skip_fetch_latest_git_deps: true
+    default_flavor: mgo
+    default_edition: ~
+    deps_as_root: false
+    silence_warnings: false
+    warnings_are_errors: false
+    additional_named_addresses: {}
+    no_lint: false
+dependencies:
+  - Mgo
+  - MoveStdlib

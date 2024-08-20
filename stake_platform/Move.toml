@@ -1,0 +1,9 @@
+[package]
+name = "stake"
+edition = "2024.alpha"
+
+[dependencies]
+Mgo = { git = "https://github.com/MangoNetworkOs/Mango.git", subdir = "crates/mgo-framework/packages/mgo-framework", rev = "framework/devnet" }
+
+[addresses]
+stake = "0x0"

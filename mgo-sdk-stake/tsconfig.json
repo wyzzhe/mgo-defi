@@ -1,0 +1,10 @@
+{
+    "compilerOptions": {
+      "module": "CommonJS", // 或者 "ESNext" 取决于你的模块系统
+      "target": "ESNext",   // 或者 "ES6"
+      "lib": ["ESNext", "DOM"],
+      "esModuleInterop": true, // 确保 ES 模块兼容性
+      "skipLibCheck": true,    // 跳过库检查以减少错误
+      "moduleResolution": "node"
+    }
+  }
