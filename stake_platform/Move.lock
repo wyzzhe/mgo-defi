@@ -20,8 +20,3 @@ dependencies = [
 [[move.package]]
 name = "MoveStdlib"
 source = { git = "https://github.com/MangoNetworkOs/Mango.git", rev = "framework/devnet", subdir = "crates/mgo-framework/packages/move-stdlib" }
-
-[move.toolchain-version]
-compiler-version = "1.0.0"
-edition = "legacy"
-flavor = "mgo"

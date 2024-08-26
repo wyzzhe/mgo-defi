@@ -5,14 +5,14 @@ compiled_package_info:
     mgo: "0000000000000000000000000000000000000000000000000000000000000002"
     stake: "0000000000000000000000000000000000000000000000000000000000000000"
     std: "0000000000000000000000000000000000000000000000000000000000000001"
-  source_digest: C91887DA2B44CC03D25E389C40997C96241E515DAB6B83B9D7ED8340D28D6CDB
+  source_digest: C8E9448014386210B96486621C79C13E43EEA34DE3578D029A831CFDBF7A86F1
   build_flags:
-    dev_mode: true
-    test_mode: true
+    dev_mode: false
+    test_mode: false
     generate_docs: false
     install_dir: ~
     force_recompilation: false
-    lock_file: ~
+    lock_file: "./Move.lock"
     fetch_deps_only: false
     skip_fetch_latest_git_deps: true
     default_flavor: mgo

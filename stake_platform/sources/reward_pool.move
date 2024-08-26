@@ -15,7 +15,6 @@ module stake::reward_pool {
 
     use stake::staking_platform::RewardPoolInfo;
 
-
     // 奖池管理员
     public struct REWARD_POOL has drop {}
 

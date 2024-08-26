@@ -1,13 +1,16 @@
 #!/bin/zsh
 # 包
-PACKAGE_ID=0x500ab5fb293f61fe4c29e746a28f19ca65c3a22dbfd4d2c0c89378137d24d809
-StakePlatform_USDT_ID=0x60d3ef493cc292bc5fe3d400c7ae8d1a4eff5c10829a8180cf607c8c03b0d3fc
-StakePlatform_MGO_ID=0x6bef69bbd4328ca4a975d05e7926d7257a2e6e6f9eb665f2f0f8cf8fb0cc374d
-Stake_Publisher=0xeb2cf1410bb285fa4f994629967b1b9505981fc5c8db6a4765a408a9d55e7fc8
-Pool_Publisher=0xf47cf2f0b09753b5905ec72c9c1eb657e052fd4f620dfd3835f4ce68006566ea
 MGO_TREASURY_CAP=0x93ccabd0a1cf6fa1ce5098f42243acc2fcf8bbe62bdf36f3fb4b57450c094192
 USDT_TREASURY_CAP=0x43e20636e0ee9ac87049427a6965ffc20376fe366a1733594adef2e12ab1225b
-Pool_ID=0xa9f7ac1643fd364f732cdee37b894717ca6127d4530d5ef07085f3f318f19d93
+PlatformCounter=0x40db07fb8bfc61fa75c509c6348191fe483c8412a264faba33d94b51fabb3282
+Stake_Publisher=0x5b8e663e2ce7591b8116b5045e6854e870d370a7ea5cabe625abdcd64b2fe71e
+Pool_Publisher=0x0f6d72ad514b1225465a39eccf353ca622692998dba86bfaf592eb777ad23ce6
+PACKAGE_ID=0x952a4613919955ca8e50a05a1e3ebad1ca437a0e7218de52799498748de1223a
+StakePlatform_USDT_ID=0x8c2378635ed82afe0d739dca75df709c50be077010692bc2f5b90505a76f20e8
+StakePlatform_MGO_ID=0xaf0740dea64b367979e6922aa9eb982780099324f224291368cece9957df78f3
+Pool_USDT_ID=0x117b566c788b8be326b45a2620a1d684fb336466c18c118f84f31d8887e6710b
+Pool_MGO_ID=0x7ff9c55bf095366ec599283431804cd57ccf90fff26106d6636e986857118cf9
+Upgrade_Cap=0xfb4e2511390eb3571abe07723b2ca3a58d9bd1a41406cb55f01e3b0b0343b714
 # 账户别名
 ADDRESS1=unruffled-amethyst
 ADDRESS2=heuristic-chrysoberyl
@@ -25,6 +28,7 @@ MODULE_POOL=pool
 MINT_USDT=mint
 MINT_MGO=mint
 CREATE_STAKEPLATFORM=create_staking_platform
+UPDATE_STAKEPLATFORM=update_staking_platform
 CREATE_POOL=create_reward_pool
 STAKE=stake
 # 泛型
@@ -56,19 +60,24 @@ deploy_package() {
 call_function_stake() {
     echo "Calling function $CREATE_COLLECTION with generic $GENERIC_COIN..."
     mgo client call --package $PACKAGE_ID --module $MODULE_STAKE --function $STAKE \
-    --gas-budget 100000000 --type-args $USDT_TYPE --args $SATKE_AMOUT $DURATION \
+    --gas-budget 100000000 --type-args $MGO_TYPE --args $SATKE_AMOUT $DURATION \
     $USDT_ID $CURRENT_TIME $StakePlatform_ID
 }
 call_function_create_stakeplatform() {
     echo "Calling function $CREATE_COLLECTION with generic $GENERIC_COIN..."
     mgo client call --package $PACKAGE_ID --module $MODULE_STAKE --function $CREATE_STAKEPLATFORM \
-    --gas-budget 100000000 --type-args $USDT_TYPE --args $ANNUAL_RATE $Stake_Publisher
+    --gas-budget 100000000 --type-args $USDT_TYPE --args $ANNUAL_RATE $PlatformCounter $Stake_Publisher
 }
 # 函数：调用 MGO Move 包中的函数
 call_function_create_rewardpool() {
     echo "Calling function $CREATE_COLLECTION with generic $GENERIC_COIN..."
-    mgo client call --package $PACKAGE_ID --module $MODULE_POOL --function $CREATE_POOL \
+    mgo client call --package $PACKAGE_ID --module $MODULE_STAKE --function $CREATE_POOL \
     --gas-budget 100000000 --type-args $USDT_TYPE --args $Pool_Publisher
+}
+call_function_update_stakeplatform() {
+    echo "Calling function $CREATE_COLLECTION with generic $GENERIC_COIN..."
+    mgo client call --package $PACKAGE_ID --module $MODULE_STAKE --function $UPDATE_STAKEPLATFORM \
+    --gas-budget 100000000 --type-args $USDT_TYPE --args $StakePlatform_USDT_ID $ANNUAL_RATE $Stake_Publisher
 }
 call_function_mint_usdt() {
     echo "Calling function $CREATE_COLLECTION with generic $GENERIC_COIN..."
@@ -116,14 +125,14 @@ case "$1" in
     create_stakeplatform)
         call_function_create_stakeplatform
         ;;
-    update_collection)
-        call_function_update_collection
+    update_stakeplatform)
+        call_function_update_stakeplatform
         ;;
     switch_address)
         client_switch_address
         ;;
     *)
-        echo "Usage: $0 {deploy|mint_usdt|update_collection|mint_nft|create_market|update_market|list_nft|delist_nft|buy_nft|take_profits|switch_address}"
+        echo "Usage: $0 {deploy|mint_usdt|create_stakeplatform|create_rewardpool|create_market|update_stakeplatform|list_nft|delist_nft|buy_nft|take_profits|switch_address}"
         exit 1
         ;;
 esac

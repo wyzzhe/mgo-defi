@@ -38,8 +38,17 @@ module stake::staking_platform {
         stake_event_counter: u64,
         unstake_event_counter: u64,
         create_stakingplatform_event_counter: u64,
-        update_stakingplatform_event_counter: u64,
+        update_platform_event_counter: u64,
+        withdraw_reward_event_counter: u64,
+        // 质押记录
         stake_address_record_table: Table<address, Table<u64, StakeInfo>>,
+    }
+
+    // 定义一个自增计数器
+    public struct PlatformCounter has store, key {
+        id: UID,
+        create_platform_event_counter: u64,
+        // 其他字段
     }
 
     // 质押信息
@@ -47,6 +56,7 @@ module stake::staking_platform {
         id: UID,
         staker: address,
         stake_amount: u64,
+        annual_rate: u64,
         start_time: u64,
         end_time: u64,
         duration: u64,
@@ -82,6 +92,7 @@ module stake::staking_platform {
         event_counter: u64,
         admin: address,
         annual_rate: u64,
+        stakingplatform_id: ID,
     }
 
     // 创建奖池事件
@@ -91,20 +102,25 @@ module stake::staking_platform {
 
     // 用户提取奖励事件
     public struct WithdrawRewardEvent has copy, drop {
-        admin: address,
+        event_counter: u64,
+        withdarwer: address,
+        withdraw_amount: u64,
+        withdraw_time: u64,
+        stakerecord_id: u64,
     }
 
     // 质押事件：质押者，质押数量，质押开始时间，质押时长
     public struct StakeEvent has copy, drop {
-        stake_event_counter: u64,
+        stake_event_counter: u64, // 总的 所有address 1-999
         staking_platform_id: ID,
         staker: address,
         stake_amount: u64,
         currency_type: TypeName,
+        annual_rate: u64,
         start_time: u64,
         duration: u64,
         end_time: u64,
-        address_stake_counter: u64,
+        address_stake_counter: u64, // 当前账户 1-999
         total_stake_record_count: u64,
         total_staker_count: u64,
         total_staked_amount: u64,
@@ -116,18 +132,25 @@ module stake::staking_platform {
         unstaker: address,
         unstake_amount: u64,
         unstake_time: u64,
+        stake_id: u64,
     }
 
     // 初始化质押平台管理员
     fun init(otw: STAKING_PLATFORM, ctx: &mut TxContext) {
         let publisher = package::claim(otw, ctx);
+        let platform_counter = PlatformCounter {
+            id: object::new(ctx),
+            create_platform_event_counter: 0,
+        };
         // 管理员所有权给合约发布者
         transfer::public_transfer(publisher, ctx.sender());
+        transfer::public_transfer(platform_counter, ctx.sender());
     }
 
     // 管理员创建质押平台
     public entry fun create_staking_platform<COIN>(
         annual_rate: u64,
+        platform_counter: &mut PlatformCounter,
         _stakeplatform_cap: &Publisher,
         ctx: &mut TxContext
     ) {
@@ -144,19 +167,20 @@ module stake::staking_platform {
             stake_event_counter: 0,
             unstake_event_counter: 0,
             create_stakingplatform_event_counter: 0,
-            update_stakingplatform_event_counter: 0,
+            update_platform_event_counter: 0,
+            withdraw_reward_event_counter: 0,
             stake_address_record_table: table::new<address, Table<u64, StakeInfo>>(ctx),
         };
 
-        let currency_type = type_name::get<COIN>();
-
         event::emit(CreateStakePlatformEvent {
-            event_counter: staking_platform.create_stakingplatform_event_counter,
+            event_counter: platform_counter.create_platform_event_counter,
             stakingplatform_id: object::uid_to_inner(&staking_platform.id),
             admin: ctx.sender(),
             annual_rate,
-            currency_type,
+            currency_type: type_name::get<COIN>(),
         });
+
+        platform_counter.create_platform_event_counter = platform_counter.create_platform_event_counter + 1;
 
         // 用户可以自由交互质押平台
         transfer::share_object<StakingPlatform<COIN>>(staking_platform);
@@ -181,8 +205,8 @@ module stake::staking_platform {
             admin: ctx.sender(),
         });
 
-        // 只有管理员可以交互收益池
-        transfer::public_transfer(rewardpool_info, ctx.sender());
+        // 用户可以从收益池提取收益
+        transfer::share_object(rewardpool_info);
     }
 
     // 逻辑：输入金库，直接划出一份用户reward，然后再根据days化成n份，每天10点打一份。
@@ -225,12 +249,13 @@ module stake::staking_platform {
         staking_platform.annual_rate = annual_rate;
 
         event::emit(UpdateStakePlatformEvent {
-            event_counter: staking_platform.update_stakingplatform_event_counter,
+            event_counter: staking_platform.update_platform_event_counter,
             admin: ctx.sender(),
             annual_rate,
+            stakingplatform_id: object::uid_to_inner(&staking_platform.id),
         });
 
-        staking_platform.update_stakingplatform_event_counter = staking_platform.update_stakingplatform_event_counter + 1;
+        staking_platform.update_platform_event_counter = staking_platform.update_platform_event_counter + 1;
     }
 
     // 质押代币
@@ -248,15 +273,26 @@ module stake::staking_platform {
         let start_timestamp = clock::timestamp_ms(current_time);
         let end_timestamp = start_timestamp + duration * 24 * 60 * 60 * 1000;
 
+        // 获取今天10点的时间戳
+        let ten_am_timestamp = get_today_ten_am_timestamp(current_time);
+        // 在今天10点前质押，初始提取时间置今天10点
+        // 在今天10点后质押，初始提取时间置明天天10点
+        let last_withdraw_time = if (ten_am_timestamp >= start_timestamp) {
+            ten_am_timestamp
+        } else {
+            ten_am_timestamp + 24 * 60 * 60 * 1000
+        };
+
         // 质押信息
         let mut stake_info = StakeInfo {
             id: object::new(ctx),
             staker: ctx.sender(),
             stake_amount,
+            annual_rate: staking_platform.annual_rate,
             start_time: start_timestamp,
             duration,
             end_time: end_timestamp,
-            last_withdraw_time: 0,
+            last_withdraw_time,
             stake_status: true,
         };
         // 质押代币直接锁仓 存入质押信息 ? 质押代币直接转给奖池管理员
@@ -303,6 +339,7 @@ module stake::staking_platform {
             staker: ctx.sender(),
             stake_amount,
             currency_type: staking_platform.currency_type,
+            annual_rate: staking_platform.annual_rate,
             start_time: start_timestamp,
             duration,
             end_time: end_timestamp,
@@ -317,7 +354,7 @@ module stake::staking_platform {
     }
 
     // 解质押代币 质押到期后随时可以解除
-    public entry fun unStake<COIN>(
+    public entry fun un_stake<COIN>(
         address_stake_counter: u64,
         current_time: &clock::Clock,
         staking_platform: &mut StakingPlatform<COIN>,
@@ -328,7 +365,7 @@ module stake::staking_platform {
         let mut stake_number_info_table = table::remove<address, Table<u64, StakeInfo>>(&mut staking_platform.stake_address_record_table, ctx.sender());
         let mut stake_info = table::remove<u64, StakeInfo>(&mut stake_number_info_table, address_stake_counter);
         let end_timestamp = stake_info.end_time;
-        assert!(current_timestamp <= end_timestamp, EStakeTimeNotReached);
+        assert!(current_timestamp >= end_timestamp, EStakeTimeNotReached);
 
         // 返还质押代币
         let stake_coin = field::remove<vector<u8>,Coin<COIN>>(&mut stake_info.id, b"stake_coin");
@@ -346,6 +383,7 @@ module stake::staking_platform {
             unstaker: ctx.sender(),
             unstake_amount: stake_amount,
             unstake_time: current_timestamp,
+            stake_id: address_stake_counter,
         });
 
         staking_platform.unstake_event_counter = staking_platform.unstake_event_counter + 1;
@@ -353,26 +391,27 @@ module stake::staking_platform {
 
     // 用户提取奖励 只要池子有钱就可以提取奖励
     public entry fun withdraw_reward<COIN>(
-        address_stake_counter: u64,
+        stake_number: u64,
         current_time: &clock::Clock,
         rewardpool_info: &mut RewardPoolInfo<COIN>,
         staking_platform: &mut StakingPlatform<COIN>,
         ctx: &mut TxContext
     ) {
-        // 借用并修改提取时间
-        let mut stake_address_record_table = table::borrow_mut<address, Table<u64, StakeInfo>>(&mut staking_platform.stake_address_record_table, ctx.sender());
-        let mut stake_number_info_table = table::borrow_mut<u64, StakeInfo>(stake_address_record_table, address_stake_counter);
-
-        // 要求与上次t提取时间满1整天才能提取
+        // 要求与上次提取时间满1整天才能提取
+        let stake_address_record_table = table::borrow_mut<address, Table<u64, StakeInfo>>(&mut staking_platform.stake_address_record_table, ctx.sender());
+        let stake_number_info_table = table::borrow_mut<u64, StakeInfo>(stake_address_record_table, stake_number);
         let current_duration = cal_days_between(current_time.timestamp_ms(), stake_number_info_table.last_withdraw_time);
         assert!(current_duration >= 1, EStakingPeriodInsufficient);
 
+        // 获取今天10点的时间戳
+        let ten_am_timestamp = get_today_ten_am_timestamp(current_time);
+
         // 更新本次提取时间
-        stake_number_info_table.last_withdraw_time = current_time.timestamp_ms();
+        stake_number_info_table.last_withdraw_time = ten_am_timestamp;
 
         // 从奖池中取出staker的vector<day_reward>
         let mut rewardpool_number_coin_table = table::remove(&mut rewardpool_info.rewardpool_address_table, ctx.sender());
-        let mut vector_day_reward: vector<Coin<COIN>> = table::remove(&mut rewardpool_number_coin_table, address_stake_counter);
+        let mut vector_day_reward: vector<Coin<COIN>> = table::remove(&mut rewardpool_number_coin_table, stake_number);
 
         // 取出vector_day_reward的第days份day_reward
         let mut extractable_reward = vector::pop_back(&mut vector_day_reward);
@@ -384,11 +423,36 @@ module stake::staking_platform {
         };
 
         // 未使用的reward打回奖池
-        table::add(&mut rewardpool_number_coin_table, address_stake_counter, vector_day_reward);
+        table::add(&mut rewardpool_number_coin_table, stake_number, vector_day_reward);
         table::add(&mut rewardpool_info.rewardpool_address_table, ctx.sender(), rewardpool_number_coin_table);
 
         // 把可提取的奖励打给用户
+        let withdraw_amount = extractable_reward.value();
         transfer::public_transfer(extractable_reward, ctx.sender());
+
+        let stake_number_info_table = table::borrow<address, Table<u64, StakeInfo>>(&staking_platform.stake_address_record_table, ctx.sender());
+        let address_stake_counter = stake_number_info_table.length();
+
+        event::emit(WithdrawRewardEvent {
+            event_counter: staking_platform.withdraw_reward_event_counter,
+            withdarwer: ctx.sender(),
+            withdraw_amount,
+            withdraw_time: current_time.timestamp_ms(),
+            stakerecord_id: address_stake_counter,
+        });
+
+        staking_platform.withdraw_reward_event_counter = staking_platform.withdraw_reward_event_counter + 1;
+    }
+
+    fun get_today_ten_am_timestamp(current_time: &clock::Clock): u64 {
+        // 获取当前时间戳（毫秒）
+        let current_day_timestamp = current_time.timestamp_ms();
+        // 计算今天0点的时间戳
+        let today_start_timestamp = (current_day_timestamp / (24 * 60 * 60 * 1000)) * (24 * 60 * 60 * 1000);
+        // 计算今天10点的时间戳
+        let ten_am_timestamp = today_start_timestamp + (10 * 60 * 60 * 1000);
+
+        ten_am_timestamp
     }
 
     #[test]
