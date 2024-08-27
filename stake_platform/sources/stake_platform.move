@@ -59,7 +59,7 @@ module stake::staking_platform {
         annual_rate: u64,
         start_time: u64,
         end_time: u64,
-        duration: u64,
+        duration_days: u64,
         last_withdraw_time: u64,
         stake_status: bool,
     }
@@ -118,7 +118,7 @@ module stake::staking_platform {
         currency_type: TypeName,
         annual_rate: u64,
         start_time: u64,
-        duration: u64,
+        duration_days: u64,
         end_time: u64,
         address_stake_counter: u64, // 当前账户 1-999
         total_stake_record_count: u64,
@@ -209,12 +209,13 @@ module stake::staking_platform {
         transfer::share_object(rewardpool_info);
     }
 
+    // TODO 预存奖励加管理员限制
     // 逻辑：输入金库，直接划出一份用户reward，然后再根据days化成n份，每天10点打一份。
     // stake发生时，管理员把对应奖励预存入奖池
     public entry fun pre_reward_pool<COIN>(
         staker: address,
         amount: u64,
-        duration: u64,
+        duration_ms: u64,
         annual_rate: u64,
         stake_number: u64,
         treasury_coin: &mut Coin<COIN>,
@@ -222,7 +223,7 @@ module stake::staking_platform {
         ctx: &mut TxContext
     ) {
         // reward
-        let sum_reward = sum_profit(amount, duration, annual_rate);
+        let (sum_reward, duration_in_days) = sum_profit(amount, duration_ms, annual_rate);
         // 金库余额要大于sum_reward
         assert!(treasury_coin.value() > sum_reward, ETreasuryInsufficient);
 
@@ -230,7 +231,7 @@ module stake::staking_platform {
         let mut sum_reward = treasury_coin.split(sum_reward, ctx);
 
         // 把sum_reward分成days份vector<day_reward>
-        let mut vector_day_reward = sum_reward.divide_into_n(duration + 1, ctx);
+        let mut vector_day_reward = sum_reward.divide_into_n(duration_in_days + 1, ctx);
         vector::push_back(&mut vector_day_reward, sum_reward);
 
         // 把奖励vector存入奖池
@@ -261,27 +262,29 @@ module stake::staking_platform {
     // 质押代币
     public entry fun stake<COIN>(
         stake_amount: u64,
-        duration: u64,
+        duration_days: u64,
         mut stake_coin: Coin<COIN>,
-        current_time: &clock::Clock,
+        current_clock: &clock::Clock,
         staking_platform: &mut StakingPlatform<COIN>,
         ctx: &mut TxContext
     ) {
         // 传入代币数量要大于质押数量
         assert!(stake_coin.value() >= stake_amount, EStakeCoinAmountInsufficient);
-        // 开始时间 结束时间
-        let start_timestamp = clock::timestamp_ms(current_time);
-        let end_timestamp = start_timestamp + duration * 24 * 60 * 60 * 1000;
 
         // 获取今天10点的时间戳
-        let ten_am_timestamp = get_today_ten_am_timestamp(current_time);
-        // 在今天10点前质押，初始提取时间置今天10点
-        // 在今天10点后质押，初始提取时间置明天天10点
-        let last_withdraw_time = if (ten_am_timestamp >= start_timestamp) {
+        let ten_am_timestamp = get_today_ten_am_timestamp(current_clock);
+
+        // 10点前今天，10点后明天
+        let start_timestamp = if (current_clock.timestamp_ms() <= ten_am_timestamp) {
             ten_am_timestamp
         } else {
             ten_am_timestamp + 24 * 60 * 60 * 1000
         };
+        // 提取时间设置为质押开始时间
+        let last_withdraw_time = start_timestamp;
+
+        // 结束质押当天10点
+        let end_timestamp = start_timestamp + duration_days * 24 * 60 * 60 * 1000;
 
         // 质押信息
         let mut stake_info = StakeInfo {
@@ -290,7 +293,7 @@ module stake::staking_platform {
             stake_amount,
             annual_rate: staking_platform.annual_rate,
             start_time: start_timestamp,
-            duration,
+            duration_days,
             end_time: end_timestamp,
             last_withdraw_time,
             stake_status: true,
@@ -341,7 +344,7 @@ module stake::staking_platform {
             currency_type: staking_platform.currency_type,
             annual_rate: staking_platform.annual_rate,
             start_time: start_timestamp,
-            duration,
+            duration_days,
             end_time: end_timestamp,
             address_stake_counter,
             // 计数器 总共质押次数，总共质押人数，总共质押金额
@@ -355,26 +358,44 @@ module stake::staking_platform {
 
     // 解质押代币 质押到期后随时可以解除
     public entry fun un_stake<COIN>(
-        address_stake_counter: u64,
-        current_time: &clock::Clock,
+        address_stake_number: u64,
+        current_clock: &clock::Clock,
+        rewardpool_info: &mut RewardPoolInfo<COIN>,
         staking_platform: &mut StakingPlatform<COIN>,
+        test: bool,
+        test_current_timestamp_ms: u64,
         ctx: &mut TxContext
     ) {
         // 质押没到期不可解除
-        let current_timestamp = clock::timestamp_ms(current_time);
         let mut stake_number_info_table = table::remove<address, Table<u64, StakeInfo>>(&mut staking_platform.stake_address_record_table, ctx.sender());
-        let mut stake_info = table::remove<u64, StakeInfo>(&mut stake_number_info_table, address_stake_counter);
+        let mut stake_info = table::remove<u64, StakeInfo>(&mut stake_number_info_table, address_stake_number);
         let end_timestamp = stake_info.end_time;
-        assert!(current_timestamp >= end_timestamp, EStakeTimeNotReached);
+        // 测试用
+        let current_timestamp_ms = if (test) {
+            test_current_timestamp_ms
+        } else {
+            clock::timestamp_ms(current_clock)
+        };
+        // 质押没到期不可解除
+        assert!(current_timestamp_ms >= end_timestamp, EStakeTimeNotReached);
 
         // 返还质押代币
         let stake_coin = field::remove<vector<u8>,Coin<COIN>>(&mut stake_info.id, b"stake_coin");
         transfer::public_transfer(stake_coin, ctx.sender());
 
+        // 判断奖励是否有剩余
+        let rewardpool_number_coin_table = table::borrow(&rewardpool_info.rewardpool_address_table, ctx.sender());
+        let vector_day_reward = table::borrow(rewardpool_number_coin_table, address_stake_number);
+
+        if (vector::length(vector_day_reward) > 0) {
+            // 返还剩余奖励
+            withdraw_reward(address_stake_number, current_clock, rewardpool_info, staking_platform, false, 0, ctx);
+        };
+
         // 更新质押状态
         stake_info.stake_status = false;
         let stake_amount = stake_info.stake_amount;
-        table::add(&mut stake_number_info_table, address_stake_counter, stake_info);
+        table::add(&mut stake_number_info_table, address_stake_number, stake_info);
         table::add<address, Table<u64, StakeInfo>>(&mut staking_platform.stake_address_record_table, ctx.sender(), stake_number_info_table);
 
         // 触发解质押事件
@@ -382,8 +403,8 @@ module stake::staking_platform {
             unstake_event_counter: staking_platform.unstake_event_counter,
             unstaker: ctx.sender(),
             unstake_amount: stake_amount,
-            unstake_time: current_timestamp,
-            stake_id: address_stake_counter,
+            unstake_time: current_timestamp_ms,
+            stake_id: address_stake_number,
         });
 
         staking_platform.unstake_event_counter = staking_platform.unstake_event_counter + 1;
@@ -391,39 +412,51 @@ module stake::staking_platform {
 
     // 用户提取奖励 只要池子有钱就可以提取奖励
     public entry fun withdraw_reward<COIN>(
-        stake_number: u64,
-        current_time: &clock::Clock,
+        address_stake_number: u64,
+        current_clock: &clock::Clock,
         rewardpool_info: &mut RewardPoolInfo<COIN>,
         staking_platform: &mut StakingPlatform<COIN>,
+        test: bool,
+        test_current_duration_days: u64,
         ctx: &mut TxContext
     ) {
         // 要求与上次提取时间满1整天才能提取
         let stake_address_record_table = table::borrow_mut<address, Table<u64, StakeInfo>>(&mut staking_platform.stake_address_record_table, ctx.sender());
-        let stake_number_info_table = table::borrow_mut<u64, StakeInfo>(stake_address_record_table, stake_number);
-        let current_duration = cal_days_between(current_time.timestamp_ms(), stake_number_info_table.last_withdraw_time);
-        assert!(current_duration >= 1, EStakingPeriodInsufficient);
+        let stake_number_info_table = table::borrow_mut<u64, StakeInfo>(stake_address_record_table, address_stake_number);
+        let current_duration_days = cal_days_between(current_clock.timestamp_ms(), stake_number_info_table.last_withdraw_time);
+
+        // 测试用
+        let current_duration_days = if (test) {
+            test_current_duration_days
+        } else {
+            current_duration_days
+        };
+
+        assert!(current_duration_days >= 1 && current_duration_days <= stake_number_info_table.duration_days, EStakingPeriodInsufficient);
 
         // 获取今天10点的时间戳
-        let ten_am_timestamp = get_today_ten_am_timestamp(current_time);
+        let ten_am_timestamp = get_today_ten_am_timestamp(current_clock);
 
         // 更新本次提取时间
         stake_number_info_table.last_withdraw_time = ten_am_timestamp;
 
         // 从奖池中取出staker的vector<day_reward>
         let mut rewardpool_number_coin_table = table::remove(&mut rewardpool_info.rewardpool_address_table, ctx.sender());
-        let mut vector_day_reward: vector<Coin<COIN>> = table::remove(&mut rewardpool_number_coin_table, stake_number);
+        let mut vector_day_reward: vector<Coin<COIN>> = table::remove(&mut rewardpool_number_coin_table, address_stake_number);
 
         // 取出vector_day_reward的第days份day_reward
+        // 先取出来一天的奖励
         let mut extractable_reward = vector::pop_back(&mut vector_day_reward);
-        let mut i = current_duration;
-        while (i < stake_number_info_table.duration) {
+        // 取出剩下的天数的奖励
+        let mut i = 1;
+        while (i < current_duration_days) {
             let day_reward = vector::pop_back(&mut vector_day_reward);
             extractable_reward.join(day_reward);
             i = i + 1;
         };
 
-        // 未使用的reward打回奖池
-        table::add(&mut rewardpool_number_coin_table, stake_number, vector_day_reward);
+        // 未使用的reward打回奖池，若已取完奖励，则奖池为空向量
+        table::add(&mut rewardpool_number_coin_table, address_stake_number, vector_day_reward);
         table::add(&mut rewardpool_info.rewardpool_address_table, ctx.sender(), rewardpool_number_coin_table);
 
         // 把可提取的奖励打给用户
@@ -437,16 +470,16 @@ module stake::staking_platform {
             event_counter: staking_platform.withdraw_reward_event_counter,
             withdarwer: ctx.sender(),
             withdraw_amount,
-            withdraw_time: current_time.timestamp_ms(),
+            withdraw_time: current_clock.timestamp_ms(),
             stakerecord_id: address_stake_counter,
         });
 
         staking_platform.withdraw_reward_event_counter = staking_platform.withdraw_reward_event_counter + 1;
     }
 
-    fun get_today_ten_am_timestamp(current_time: &clock::Clock): u64 {
+    fun get_today_ten_am_timestamp(current_clock: &clock::Clock): u64 {
         // 获取当前时间戳（毫秒）
-        let current_day_timestamp = current_time.timestamp_ms();
+        let current_day_timestamp = current_clock.timestamp_ms();
         // 计算今天0点的时间戳
         let today_start_timestamp = (current_day_timestamp / (24 * 60 * 60 * 1000)) * (24 * 60 * 60 * 1000);
         // 计算今天10点的时间戳

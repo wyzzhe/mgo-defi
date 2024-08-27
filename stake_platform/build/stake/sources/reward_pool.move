@@ -28,13 +28,16 @@ module stake::reward_pool {
     public fun sum_profit(
         amount: u64,
         // x天 365天
-        duration: u64,
+        duration_ms: u64,
         annual_rate: u64,
-    ): u64 {
+    ): (u64, u64) {
         let annual_reward = amount * annual_rate / 10000;
         let day_reward = annual_reward / 365;
-        let sum_reward = day_reward * duration;
-        sum_reward
+
+        let duration_in_days = duration_ms / 86400000;
+
+        let sum_reward = day_reward * duration_in_days;
+        (sum_reward, duration_in_days)
     }
 
     public fun cal_days_between(last_timestamp: u64, current_timestamp: u64): u64 {
