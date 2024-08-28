@@ -12,6 +12,7 @@ module stake::reward_pool {
     use mgo::table_vec::TableVec;
     use mgo::dynamic_field as field;
     use mgo::clock;
+    use mgo::event::emit;
 
     use stake::staking_platform::RewardPoolInfo;
 
@@ -24,20 +25,18 @@ module stake::reward_pool {
         // 管理员所有权给合约发布者
         transfer::public_transfer(publisher, ctx.sender());
     }
-
+    // 1_000_000 10 500
     public fun sum_profit(
         amount: u64,
         // x天 365天
-        duration_ms: u64,
+        duration_days: u64,
         annual_rate: u64,
-    ): (u64, u64) {
+    ): u64 {
         let annual_reward = amount * annual_rate / 10000;
         let day_reward = annual_reward / 365;
 
-        let duration_in_days = duration_ms / 86400000;
-
-        let sum_reward = day_reward * duration_in_days;
-        (sum_reward, duration_in_days)
+        let sum_reward = day_reward * duration_days;
+        sum_reward
     }
 
     public fun cal_days_between(last_timestamp: u64, current_timestamp: u64): u64 {
@@ -56,14 +55,31 @@ module stake::reward_pool {
         days
     }
 
+    // 创建质押平台事件
+    public struct ValueEvent has copy, drop {
+        value: u64,
+    }
+
+    public entry fun get_treasury_coin_value<COIN>(
+        treasury_coin: &mut Coin<COIN>,
+    ) {
+        emit(ValueEvent{
+            value: treasury_coin.value(),
+        });
+    }
+
     #[test]
     fun test_cal_days_between() {
         use std::debug;
+        // 质押1个usdt
+        let result = sum_profit(1_000_000, 10, 500);
+        debug::print(&result);
+    }
 
-        let start_timestamp = 1689072000000;
-        let current_timestamp = 1689158400000;
-        let days = cal_days_between(start_timestamp, current_timestamp);
-
-        debug::print(&days);
+    #[test]
+    fun test_get_treasury_coin_value() {
+        use std::debug;
+        let result = get_treasury_coin_value(0xaa2fd6dc3763e04d9078de8d4434bcbb4dda5ddb22e29808f2ad78355da0e93f);
+        debug::print(&result);
     }
 }

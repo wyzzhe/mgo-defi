@@ -1,16 +1,20 @@
 #!/bin/zsh
 # 包
-MGO_TREASURY_CAP=0x93ccabd0a1cf6fa1ce5098f42243acc2fcf8bbe62bdf36f3fb4b57450c094192
-USDT_TREASURY_CAP=0x43e20636e0ee9ac87049427a6965ffc20376fe366a1733594adef2e12ab1225b
-PlatformCounter=0x076e46fa690679f2850137e871b1066625452d43a66b3ca0383915cad8fcf563
-Stake_Publisher=0xa407b576b6c0609bd308005fd8edeee80646436182da8121f4286b52077c40dc
-Pool_Publisher=0xe46f5d92bab634d4c2273484cb1621013a4956bd207fe90ffbc6c420b7c5760d
-PACKAGE_ID=0x06a41756c4b38963000c52daa4a5034eb488bf7813665d1b46e360c5ef8eeb29
-StakePlatform_USDT_ID=0xaa65b2164ed9e3938cb72c71e23c50dc38060d2646687bba795fc89a53a6ae9d
-Pool_USDT_ID=0x5c556f28a46706462d6f91f4bc6f5a13c25cbcbe200f8985afcf9ab393d52ce1
+PACKAGE_ID=0xde0f8e948803b99562a63a32fec6433f56e69aee290d364abc6d62cac0fdcc06
+PlatformCounter=0xe9f54bed4b758f64f31bcf5d26b3d6f662cdd17fe4cd9641b7296b3ea60084ee
+Stake_Publisher=0x86728cc18b6c7346129e01b61f25e132062e239eecb6fb16d87c17891dc750b8
+Pool_Publisher=0x92208f4d787db2796800d7f2c35015d47eb99c9ee0814fd8936b3aa449765e7b
+StakePlatform_USDT_ID=0x611536f58ee6eea34db839bb70fceb555ddd49a74f043dfa77130a0b71b1b684
+Pool_USDT_ID=0xad47435eb881f7b2b6dec214d42e1c29d2385c13c7f7a990519031e3cd688574
+StakeInfo=0xe732ca6c7d5b81c357a56df7e869fb3af204e23873242cbbe138f7039fefb679
 StakePlatform_MGO_ID=0xaef8ebb9079b8a00eb3722a9c24371ce90c21d6caa57ad24a438ce06a682c058
 Pool_MGO_ID=0x58c8e076be65fc5eb7cc866857ca80be825be2ff39f14f9a2dd72f42ed3c9a63
 Upgrade_Cap=0xfb4e2511390eb3571abe07723b2ca3a58d9bd1a41406cb55f01e3b0b0343b714
+b=0x0de63e16b3964332e49e7ff61e5c90700091cef29d76c825cff9d0d6722b711c
+c=0x0de63e16b3964332e49e7ff61e5c90700091cef29d76c825cff9d0d6722b711c
+MGO_TREASURY_CAP=0x93ccabd0a1cf6fa1ce5098f42243acc2fcf8bbe62bdf36f3fb4b57450c094192
+USDT_TREASURY_CAP=0x43e20636e0ee9ac87049427a6965ffc20376fe366a1733594adef2e12ab1225b
+
 # 账户别名
 ADDRESS1=unruffled-amethyst
 ADDRESS2=heuristic-chrysoberyl
@@ -42,9 +46,12 @@ FEE_RATE=100 # 相当于1.00%
 ROYALTY_RATE=100
 AMOUNT=1000000000
 ANNUAL_RATE=500
-SATKE_AMOUT=10000
-DURATION=10
-
+SATKE_AMOUT=1000000
+DURATION_DAYS=10
+DURATION_MS=864000000
+PRE_REWARD=pre_reward_pool
+STAKER=0x6d5ae691047b8e55cb3fc84da59651c5bae57d2970087038c196ed501e00697b
+STAKE_NUMBER=1
 #$DURATION
 
 # 代币精度6位
@@ -56,12 +63,19 @@ deploy_package() {
     echo "Deploying MGO Move package..."
     mgo client publish ./ --gas-budget 100000000 --skip-fetch-latest-git-deps
 }
+
 # 函数：调用 MGO Move 包中的函数
+call_function_pre_reward() {
+    echo "Calling function $CREATE_COLLECTION with generic $GENERIC_COIN..."
+    mgo client call --package $PACKAGE_ID --module $MODULE_STAKE --function $PRE_REWARD \
+    --gas-budget 100000000 --type-args $USDT_TYPE --args $STAKER $SATKE_AMOUT $DURATION_DAYS \
+    $ANNUAL_RATE $STAKE_NUMBER $USDT_ID $Pool_USDT_ID
+}
 call_function_stake() {
     echo "Calling function $CREATE_COLLECTION with generic $GENERIC_COIN..."
     mgo client call --package $PACKAGE_ID --module $MODULE_STAKE --function $STAKE \
-    --gas-budget 100000000 --type-args $MGO_TYPE --args $SATKE_AMOUT $DURATION \
-    $USDT_ID $CURRENT_TIME $StakePlatform_ID
+    --gas-budget 100000000 --type-args $USDT_TYPE --args $SATKE_AMOUT $DURATION_DAYS \
+    $USDT_ID $CURRENT_TIME $StakePlatform_USDT_ID
 }
 call_function_create_stakeplatform() {
     echo "Calling function $CREATE_COLLECTION with generic $GENERIC_COIN..."
@@ -110,6 +124,9 @@ case "$1" in
     deploy)
         deploy_package
         ;;
+    pre_reward)
+        call_function_pre_reward
+        ;;
     mint_usdt)
         call_function_mint_usdt
         ;;
@@ -132,7 +149,7 @@ case "$1" in
         client_switch_address
         ;;
     *)
-        echo "Usage: $0 {deploy|mint_usdt|create_stakeplatform|create_rewardpool|create_market|update_stakeplatform|list_nft|delist_nft|buy_nft|take_profits|switch_address}"
+        echo "Usage: $0 {deploy|pre_reward|mint_usdt|create_stakeplatform|create_rewardpool|stake|update_stakeplatform|switch_address}"
         exit 1
         ;;
 esac
