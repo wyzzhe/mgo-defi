@@ -69,17 +69,19 @@ module stake::reward_pool {
     }
 
     #[test]
-    fun test_cal_days_between() {
+    fun test_create_stake() {
         use std::debug;
-        // 质押1个usdt
-        let result = sum_profit(1_000_000, 10, 500);
-        debug::print(&result);
-    }
+        use mgo::test_scenario::{Self, next_tx, ctx};
 
-    #[test]
-    fun test_get_treasury_coin_value() {
-        use std::debug;
-        let result = get_treasury_coin_value(0xaa2fd6dc3763e04d9078de8d4434bcbb4dda5ddb22e29808f2ad78355da0e93f);
-        debug::print(&result);
+        let admin = @0xA;
+
+        let mut scenario = test_scenario::begin(admin);
+        // 初始化奖池publisher
+        init(REWARD_POOL {}, ctx(&mut scenario));
+        next_tx(&mut scenario, admin);
+        let pool_publisher = test_scenario::take_from_address<Publisher>(&scenario, admin);
+        test_scenario::return_to_address<Publisher>(admin, pool_publisher);
+
+        scenario.end();
     }
 }
